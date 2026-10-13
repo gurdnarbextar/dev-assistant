@@ -1,0 +1,171 @@
+# ==========================================================
+# Environment variables and local secrets
+# ==========================================================
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Credential and secret files
+secrets/
+secret/
+credentials/
+credential/
+*.secret
+*.secrets
+*.credentials
+*.credentials.json
+*credentials*.json
+*service-account*.json
+*service_account*.json
+
+# API tokens and private local configuration
+.npmrc
+!.npmrc.example
+.netrc
+.pypirc
+.htpasswd
+.boto
+.s3cfg
+.config/gcloud/
+.aws/
+.azure/
+.kube/
+.ssh/
+.gnupg/
+.config/gh/hosts.yml
+
+# ==========================================================
+# Cryptographic keys and certificates
+# ==========================================================
+*.pem
+*.key
+*.p12
+*.pfx
+*.p7b
+*.p7c
+*.p8
+*.jks
+*.keystore
+*.mobileprovision
+*.provisionprofile
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+id_ecdsa
+id_ecdsa.*
+id_dsa
+id_dsa.*
+private_key
+private_key.*
+private-key
+private-key.*
+server.key
+client.key
+
+# ==========================================================
+# Local databases, dumps, and data exports
+# ==========================================================
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.dump
+*.bak.sql
+*.private.csv
+*.sensitive.csv
+*.private.tsv
+*.sensitive.tsv
+*.parquet
+*.p12
+*.rdb
+*.aof
+data/private/
+data/sensitive/
+exports/
+private-data/
+local-data/
+
+# ==========================================================
+# Logs, diagnostics, traces, and crash reports
+# ==========================================================
+*.log
+*.log.*
+logs/
+log/
+*.trace
+*.dump
+*.stackdump
+*.core
+core
+coverage/
+.nyc_output/
+diagnostics*.md
+diagnostic-report*
+debug-report*
+crash-report*
+*.har
+
+# ==========================================================
+# Backups, temporary files, and editor artefacts
+# ==========================================================
+*.bak
+*.backup
+*.old
+*.orig
+*.rej
+*.swp
+*.swo
+*.tmp
+*.temp
+*~
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+!.vscode/extensions.json
+
+# ==========================================================
+# Dependencies and build output
+# ==========================================================
+node_modules/
+dist/
+build/
+out/
+.next/
+.turbo/
+.cache/
+.parcel-cache/
+.eslintcache
+*.tsbuildinfo
+
+# ==========================================================
+# Cloud, infrastructure, and deployment state
+# ==========================================================
+terraform.tfstate
+terraform.tfstate.*
+*.tfstate
+*.tfstate.*
+.terraform/
+.override.tf
+.override.tf.json
+*_override.tf
+*_override.tf.json
+crash.log
+kubeconfig
+kubeconfig.*
+docker-compose.override.yml
+
+# ==========================================================
+# Local environment and machine-specific files
+# ==========================================================
+.venv/
+venv/
+ENV/
+.python-version.local
+local.settings.json
+appsettings.Local.json
+appsettings.*.Local.json
+*.local
+*.local.*

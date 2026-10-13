@@ -1,0 +1,26 @@
+{
+  "name": "dev-assistant",
+  "version": "0.1.0",
+  "description": "A local-first Git development automation CLI",
+  "main": "./dist/index.js",
+  "scripts": {
+    "test": "node --import tsx --test tests/*.test.ts",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc && chmod +x dist/index.js",
+    "start": "node dist/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "private": true,
+  "bin": {
+    "dev-assistant": "./dist/index.js"
+  }
+}
