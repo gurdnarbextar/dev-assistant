@@ -149,8 +149,10 @@ async function askAI(prompt: string, modelChoice?: string): Promise<void> {
     });
 
     if (!response.ok) {
-      const detail = (await response.text()).slice(0, 2000);
-      console.error(`AI provider returned HTTP ${response.status}: ${detail}`);
+      await response.body?.cancel();
+      console.error(
+        `AI provider returned HTTP ${response.status}. Check provider configuration and try again.`,
+      );
       process.exitCode = 1;
       return;
     }

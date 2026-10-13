@@ -188,3 +188,66 @@ test('AI ask sends the selected alias model to the provider', async () => {
     });
   }
 });
+
+test('AI provider errors do not expose response details or API keys', async () => {
+  const sensitiveDetail = 'sensitive-provider-detail-test-sentinel';
+  const testApiKey = 'test-only-api-key-sentinel';
+
+  const server = createServer((_request, response) => {
+    response.writeHead(401, { 'Content-Type': 'application/json' });
+    response.end(JSON.stringify({
+      error: { message: sensitiveDetail },
+      diagnostic: sensitiveDetail,
+    }));
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+
+    const result = await new Promise<{
+      code: number | null;
+      stdout: string;
+      stderr: string;
+    }>((resolve, reject) => {
+      const child = spawn(
+        process.execPath,
+        ['--import', 'tsx', cliPath, 'ai-ask', 'test prompt'],
+        {
+          cwd: projectRoot,
+          env: {
+            ...process.env,
+            AI_BASE_URL: `http://127.0.0.1:${address.port}/v1`,
+            AI_API_KEY: testApiKey,
+            AI_MODEL: 'test-provider/test-model',
+            OPENROUTER_API_KEY: '',
+          },
+        },
+      );
+
+      let stdout = '';
+      let stderr = '';
+
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (chunk: string) => { stdout += chunk; });
+      child.stderr.on('data', (chunk: string) => { stderr += chunk; });
+      child.once('error', reject);
+      child.once('close', (code) => resolve({ code, stdout, stderr }));
+    });
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /HTTP 401/);
+    assert.doesNotMatch(result.stdout + result.stderr, new RegExp(sensitiveDetail));
+    assert.doesNotMatch(result.stdout + result.stderr, new RegExp(testApiKey));
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+});
