@@ -10,10 +10,65 @@ interface AIConfig {
 
 function getConfig(): AIConfig {
   return {
-    baseUrl: process.env.AI_BASE_URL || 'https://api.openai.com/v1',
-    model: process.env.AI_MODEL || '',
-    apiKey: process.env.AI_API_KEY || '',
+    baseUrl:
+      process.env.AI_BASE_URL ||
+      process.env.OPENROUTER_BASE_URL ||
+      'https://openrouter.ai/api/v1',
+    model:
+      process.env.AI_MODEL ||
+      process.env.OPENROUTER_GEMINI_MODEL ||
+      '',
+    apiKey:
+      process.env.AI_API_KEY ||
+      process.env.OPENROUTER_API_KEY ||
+      '',
   };
+}
+
+const MODEL_ALIASES: Record<string, string> = {
+  gemini: 'OPENROUTER_GEMINI_MODEL',
+  'openai-mini': 'OPENROUTER_OPENAI_MINI_MODEL',
+  'openai-nano': 'OPENROUTER_OPENAI_NANO_MODEL',
+  'deepseek-flash': 'OPENROUTER_DEEPSEEK_FLASH_MODEL',
+  'deepseek-pro': 'OPENROUTER_DEEPSEEK_PRO_MODEL',
+  'deepseek-vision': 'OPENROUTER_DEEPSEEK_VISION_MODEL',
+};
+
+function extractModelOption(args: string[]): {
+  args: string[];
+  model?: string;
+  error: boolean;
+} {
+  const remaining = [...args];
+  const index = remaining.indexOf('--model');
+
+  if (index === -1) {
+    return { args: remaining, error: false };
+  }
+
+  const model = remaining[index + 1];
+
+  if (!model || model.startsWith('--')) {
+    console.error('Usage: --model <alias-or-provider/model-id>');
+    return { args: remaining, error: true };
+  }
+
+  remaining.splice(index, 2);
+  return { args: remaining, model, error: false };
+}
+
+export function aiModels(): void {
+  console.log('Configured AI models');
+  console.log(`Default: ${process.env.AI_MODEL || process.env.OPENROUTER_GEMINI_MODEL || '(not configured)'}`);
+  console.log('');
+
+  for (const [alias, variable] of Object.entries(MODEL_ALIASES)) {
+    const model = process.env[variable];
+    console.log(`${alias.padEnd(16)} ${model || '(not configured)'}`);
+  }
+
+  console.log('');
+  console.log('Select a model with: ai-ask --model <alias> "Your question"');
 }
 
 export function aiConfig(): void {
@@ -30,10 +85,31 @@ export function aiConfig(): void {
   console.log('  AI_BASE_URL  OpenAI-compatible API base URL');
 }
 
-async function askAI(prompt: string): Promise<void> {
+async function askAI(prompt: string, modelChoice?: string): Promise<void> {
   const config = getConfig();
+  let selectedModel = config.model;
 
-  if (!config.apiKey || !config.model) {
+  if (modelChoice) {
+    const variable = MODEL_ALIASES[modelChoice.toLowerCase()];
+
+    if (variable) {
+      selectedModel = process.env[variable] || '';
+      if (!selectedModel) {
+        console.error(`Model alias "${modelChoice}" is not configured in .env.`);
+        process.exitCode = 1;
+        return;
+      }
+    } else if (modelChoice.includes('/')) {
+      selectedModel = modelChoice;
+    } else {
+      console.error(`Unknown model alias: ${modelChoice}`);
+      console.error(`Available aliases: ${Object.keys(MODEL_ALIASES).join(', ')}`);
+      process.exitCode = 1;
+      return;
+    }
+  }
+
+  if (!config.apiKey || !selectedModel) {
     console.error('AI is not configured. Set AI_API_KEY and AI_MODEL first.');
     process.exitCode = 1;
     return;
@@ -55,7 +131,7 @@ async function askAI(prompt: string): Promise<void> {
     return;
   }
 
-  console.log(`Sending request to ${endpoint.origin} using model "${config.model}"...`);
+  console.log(`Sending request to ${endpoint.origin} using model "${selectedModel}"...`);
 
   try {
     const response = await fetch(endpoint, {
@@ -65,7 +141,7 @@ async function askAI(prompt: string): Promise<void> {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: config.model,
+        model: selectedModel,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.2,
       }),
@@ -102,19 +178,31 @@ async function askAI(prompt: string): Promise<void> {
 }
 
 export async function aiAsk(): Promise<void> {
-  const prompt = process.argv.slice(3).join(' ').trim();
-
-  if (!prompt) {
-    console.error('Usage: dev-assistant ai-ask "Your question"');
+  const parsed = extractModelOption(process.argv.slice(3));
+  if (parsed.error) {
     process.exitCode = 1;
     return;
   }
 
-  await askAI(prompt);
+  const prompt = parsed.args.join(' ').trim();
+
+  if (!prompt) {
+    console.error('Usage: dev-assistant ai-ask [--model alias] "Your question"');
+    process.exitCode = 1;
+    return;
+  }
+
+  await askAI(prompt, parsed.model);
 }
 
 export async function aiDebug(): Promise<void> {
-  const args = process.argv.slice(3);
+  const parsed = extractModelOption(process.argv.slice(3));
+  if (parsed.error) {
+    process.exitCode = 1;
+    return;
+  }
+
+  const args = parsed.args;
   const fileFlag = args.indexOf('--file');
   let fileContext = '';
 
@@ -172,7 +260,13 @@ export async function aiReview(): Promise<void> {
     return;
   }
 
-  const args = process.argv.slice(3);
+  const parsed = extractModelOption(process.argv.slice(3));
+  if (parsed.error) {
+    process.exitCode = 1;
+    return;
+  }
+
+  const args = parsed.args;
   const send = args.includes('--send');
   const stagedOnly = args.includes('--staged');
 
