@@ -1,5 +1,7 @@
 import { createServer } from 'node:http';
-import { spawn } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import { execFileSync, spawn } from 'node:child_process';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -112,6 +114,7 @@ test('AI ask rejects --model without a value', () => {
 
 test('AI ask sends the selected alias model to the provider', async () => {
   let requestBody = '';
+  const tsxLoader = import.meta.resolve('tsx');
 
   const server = createServer((request, response) => {
     request.setEncoding('utf8');
@@ -135,6 +138,7 @@ test('AI ask sends the selected alias model to the provider', async () => {
     const address = server.address();
     assert.ok(address && typeof address !== 'string');
 
+    const tsxLoader = import.meta.resolve('tsx');
     const result = await new Promise<{
       code: number | null;
       stdout: string;
@@ -249,5 +253,124 @@ test('AI provider errors do not expose response details or API keys', async () =
     await new Promise<void>((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve());
     });
+  }
+});
+
+
+async function runAICommandWithMockProvider(
+  commandArgs: string[],
+  cwd: string,
+): Promise<{ code: number | null; stdout: string; stderr: string; model: string }> {
+  let requestBody = '';
+
+  const server = createServer((request, response) => {
+    request.setEncoding('utf8');
+    request.on('data', (chunk: string) => {
+      requestBody += chunk;
+    });
+    request.on('end', () => {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({
+        choices: [{ message: { content: 'Mock response successful' } }],
+      }));
+    });
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+
+    const tsxLoader = import.meta.resolve('tsx');
+    const result = await new Promise<{
+      code: number | null;
+      stdout: string;
+      stderr: string;
+    }>((resolve, reject) => {
+      const child = spawn(
+        process.execPath,
+        ['--import', tsxLoader, cliPath, ...commandArgs],
+        {
+          cwd,
+          env: {
+            ...process.env,
+            AI_BASE_URL: `http://127.0.0.1:${address.port}/v1`,
+            AI_API_KEY: 'test-only-key',
+            AI_MODEL: 'test-provider/default-model',
+            OPENROUTER_API_KEY: '',
+            OPENROUTER_OPENAI_MINI_MODEL: 'test-provider/test-mini-model',
+          },
+        },
+      );
+
+      let stdout = '';
+      let stderr = '';
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (chunk: string) => { stdout += chunk; });
+      child.stderr.on('data', (chunk: string) => { stderr += chunk; });
+      child.once('error', reject);
+      child.once('close', (code) => resolve({ code, stdout, stderr }));
+    });
+
+    if (!requestBody) {
+      throw new Error(
+        `Mock provider received no request. Exit code: ${result.code}\n` +
+        `stdout: ${result.stdout}\nstderr: ${result.stderr}`,
+      );
+    }
+    const payload = JSON.parse(requestBody) as { model: string };
+    return { ...result, model: payload.model };
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+}
+
+test('AI debug forwards the selected model to the provider', async () => {
+  const result = await runAICommandWithMockProvider(
+    ['ai-debug', '--model', 'openai-mini', 'test failure description'],
+    projectRoot,
+  );
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /Mock response successful/);
+  assert.equal(result.model, 'test-provider/test-mini-model');
+});
+
+test('AI review forwards the selected model to the provider', async () => {
+  const repo = mkdtempSync(path.join(os.tmpdir(), 'dev-assistant-review-test-'));
+
+  try {
+    execFileSync('git', ['init', '-q'], { cwd: repo });
+    execFileSync('git', ['config', 'user.name', 'Dev Assistant Test'], { cwd: repo });
+    execFileSync('git', ['config', 'user.email', 'dev-assistant-test@example.invalid'], {
+      cwd: repo,
+    });
+
+    writeFileSync(path.join(repo, 'sample.ts'), 'export const value = 1;\n');
+    execFileSync('git', ['add', 'sample.ts'], { cwd: repo });
+    execFileSync(
+      'git',
+      ['-c', 'core.hooksPath=/dev/null', 'commit', '-m', 'test fixture'],
+      { cwd: repo, stdio: 'ignore' },
+    );
+    writeFileSync(path.join(repo, 'sample.ts'), 'export const value = 2;\n');
+
+    const result = await runAICommandWithMockProvider(
+      ['ai-review', '--model', 'openai-mini', '--send'],
+      repo,
+    );
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /Mock response successful/);
+    assert.equal(result.model, 'test-provider/test-mini-model');
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
   }
 });

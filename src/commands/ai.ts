@@ -251,7 +251,7 @@ export async function aiDebug(): Promise<void> {
     console.log('The supplied file contents will be sent to the configured AI provider.');
   }
 
-  await askAI(prompt);
+  await askAI(prompt, parsed.model);
 }
 
 
@@ -314,5 +314,5 @@ export async function aiReview(): Promise<void> {
   ].join('\n');
 
   console.log('Sending the selected tracked diff to the configured AI provider.');
-  await askAI(prompt);
+  await askAI(prompt, parsed.model);
 }
