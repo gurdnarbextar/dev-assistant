@@ -59,3 +59,51 @@ test('AI configuration does not print API key values', () => {
   assert.match(result.stdout, /configured \(value hidden\)/);
   assert.doesNotMatch(result.stdout, /test-secret-value/);
 });
+
+function runCliWithEnv(args: string[], overrides: Record<string, string>) {
+  return spawnSync(
+    process.execPath,
+    ['--import', 'tsx', cliPath, ...args],
+    {
+      cwd: projectRoot,
+      encoding: 'utf8',
+      timeout: 15_000,
+      env: { ...process.env, ...overrides },
+    },
+  );
+}
+
+test('AI model listing displays configured aliases', () => {
+  const result = runCliWithEnv(['ai-models'], {
+    OPENROUTER_OPENAI_MINI_MODEL: 'test-provider/test-mini-model',
+  });
+
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /openai-mini\s+test-provider\/test-mini-model/);
+  assert.match(result.stdout, /deepseek-vision/);
+  assert.doesNotMatch(result.stdout, /test-secret-value/);
+});
+
+test('AI ask rejects unknown model aliases without making a request', () => {
+  const result = runCliWithEnv(
+    ['ai-ask', '--model', 'not-a-real-model', 'test prompt'],
+    {
+      AI_API_KEY: '',
+      OPENROUTER_API_KEY: '',
+    },
+  );
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Unknown model alias: not-a-real-model/);
+  assert.doesNotMatch(result.stderr, /test-secret-value/);
+});
+
+test('AI ask rejects --model without a value', () => {
+  const result = runCliWithEnv(['ai-ask', '--model'], {
+    AI_API_KEY: '',
+    OPENROUTER_API_KEY: '',
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Usage: --model <alias-or-provider\/model-id>/);
+});
