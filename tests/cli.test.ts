@@ -1,3 +1,5 @@
+import { createServer } from 'node:http';
+import { spawn } from 'node:child_process';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -106,4 +108,83 @@ test('AI ask rejects --model without a value', () => {
 
   assert.equal(result.status, 1);
   assert.match(result.stderr, /Usage: --model <alias-or-provider\/model-id>/);
+});
+
+test('AI ask sends the selected alias model to the provider', async () => {
+  let requestBody = '';
+
+  const server = createServer((request, response) => {
+    request.setEncoding('utf8');
+    request.on('data', (chunk: string) => {
+      requestBody += chunk;
+    });
+    request.on('end', () => {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({
+        choices: [{ message: { content: 'Mock response successful' } }],
+      }));
+    });
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+
+    const result = await new Promise<{
+      code: number | null;
+      stdout: string;
+      stderr: string;
+    }>((resolve, reject) => {
+      const child = spawn(
+        process.execPath,
+        [
+          '--import', 'tsx', cliPath,
+          'ai-ask', '--model', 'openai-mini', 'Say hello',
+        ],
+        {
+          cwd: projectRoot,
+          env: {
+            ...process.env,
+            AI_BASE_URL: `http://127.0.0.1:${address.port}/v1`,
+            AI_API_KEY: 'test-only-key',
+            AI_MODEL: 'test-provider/default-model',
+            OPENROUTER_API_KEY: '',
+            OPENROUTER_OPENAI_MINI_MODEL: 'test-provider/test-mini-model',
+          },
+        },
+      );
+
+      let stdout = '';
+      let stderr = '';
+
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (chunk: string) => { stdout += chunk; });
+      child.stderr.on('data', (chunk: string) => { stderr += chunk; });
+      child.once('error', reject);
+      child.once('close', (code) => resolve({ code, stdout, stderr }));
+    });
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /Mock response successful/);
+
+    const payload = JSON.parse(requestBody) as {
+      model: string;
+      messages: Array<{ role: string; content: string }>;
+    };
+
+    assert.equal(payload.model, 'test-provider/test-mini-model');
+    assert.deepEqual(payload.messages, [
+      { role: 'user', content: 'Say hello' },
+    ]);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
 });
