@@ -7,7 +7,7 @@ import { gitCommit, gitUndoHelp } from './commands/commit.js';
 import { projectInfo, runProjectCheck } from './commands/project.js';
 import { collectDiagnostics } from './commands/diagnostics.js';
 import { githubDoctor, githubRepo, githubIssues, githubPrs, githubRuns } from './commands/github.js';
-import { aiConfig, aiAsk, aiDebug, aiReview, aiModels } from './commands/ai.js';
+import { aiConfig, aiAsk, aiDebug, aiReview, aiModels, aiChat } from './commands/ai.js';
 import { gitStage, gitBranch } from './commands/workflow.js';
 import { securityScan, securityHook } from './commands/security.js';
 
@@ -44,6 +44,7 @@ Git workflow:
 Utilities:
   ai-config                  Show AI configuration (without secrets)
   ai-models                  List configured AI model aliases
+  chat                      Start interactive AI chat
   ai-ask [--model alias] "question"
                              Ask a selected AI model (Gemini is the default)
   ai-review [--staged] [--send]
@@ -121,6 +122,9 @@ try {
       break;
     case 'ai-models':
       aiModels();
+      break;
+    case 'chat':
+      await aiChat();
       break;
     case 'ai-ask':
       await aiAsk();

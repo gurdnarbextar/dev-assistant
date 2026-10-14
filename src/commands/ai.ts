@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import process from 'node:process';
+import { createInterface } from 'node:readline/promises';
 import { runGit, isGitRepository } from '../lib/git.js';
 
 interface AIConfig {
@@ -83,6 +84,179 @@ export function aiConfig(): void {
   console.log('  AI_MODEL     Model identifier supported by that provider');
   console.log('Optional:');
   console.log('  AI_BASE_URL  OpenAI-compatible API base URL');
+}
+
+
+export async function aiChat(): Promise<void> {
+  const config = getConfig();
+
+  if (!config.apiKey || !config.model) {
+    console.error('AI is not configured. Set AI_API_KEY and AI_MODEL first.');
+    process.exitCode = 1;
+    return;
+  }
+
+  let selectedModel = config.model;
+  const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+
+  const resolveModel = (choice: string): string | null => {
+    const normalized = choice.toLowerCase();
+    const variable = MODEL_ALIASES[normalized];
+
+    if (variable) {
+      const model = process.env[variable] || '';
+      if (!model) {
+        console.error(`Model alias "${choice}" is not configured in .env.`);
+        return null;
+      }
+      return model;
+    }
+
+    if (choice.includes('/')) {
+      return choice;
+    }
+
+    console.error(`Unknown model alias: ${choice}`);
+    console.error(`Available aliases: ${Object.keys(MODEL_ALIASES).join(', ')}`);
+    return null;
+  };
+
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    terminal: true,
+  });
+
+  console.log('\nDev Assistant interactive chat');
+  console.log(`Model: ${selectedModel}`);
+  console.log('Type /help for commands or /exit to quit.\n');
+
+  try {
+    while (true) {
+      const input = (await rl.question('You> ')).trim();
+
+      if (!input) continue;
+
+      if (input === '/exit' || input === '/quit') {
+        console.log('Goodbye.');
+        break;
+      }
+
+      if (input === '/help') {
+        console.log(`
+Chat commands:
+  /help                 Show this help
+  /model                Show the current model
+  /model <alias>        Switch model
+  /clear                Clear conversation history
+  /status               Show session information
+  /exit                 Exit chat
+  /quit                 Exit chat
+`);
+        continue;
+      }
+
+      if (input === '/model') {
+        console.log(`Model: ${selectedModel}`);
+        continue;
+      }
+
+      if (input.startsWith('/model ')) {
+        const choice = input.slice('/model '.length).trim();
+        const model = resolveModel(choice);
+
+        if (model) {
+          selectedModel = model;
+          console.log(`Model switched to: ${selectedModel}`);
+        }
+
+        continue;
+      }
+
+      if (input === '/clear') {
+        messages.length = 0;
+        console.log('Conversation history cleared.');
+        continue;
+      }
+
+      if (input === '/status') {
+        console.log(`Model: ${selectedModel}`);
+        console.log(`Messages: ${messages.length}`);
+        console.log(`Provider: ${config.baseUrl}`);
+        continue;
+      }
+
+      messages.push({ role: 'user', content: input });
+
+      let endpoint: URL;
+
+      try {
+        endpoint = new URL(`${config.baseUrl.replace(/\/+$/, '')}/chat/completions`);
+      } catch {
+        console.error('AI_BASE_URL is not a valid URL.');
+        messages.pop();
+        continue;
+      }
+
+      if (
+        endpoint.protocol !== 'https:' &&
+        endpoint.hostname !== 'localhost' &&
+        endpoint.hostname !== '127.0.0.1'
+      ) {
+        console.error('Refusing to send an API key over plain HTTP to a non-local host.');
+        messages.pop();
+        continue;
+      }
+
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${config.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: selectedModel,
+            messages,
+            temperature: 0.2,
+          }),
+          signal: AbortSignal.timeout(90_000),
+        });
+
+        if (!response.ok) {
+          await response.body?.cancel();
+          console.error(
+            `AI provider returned HTTP ${response.status}. Check provider configuration and try again.`,
+          );
+          messages.pop();
+          continue;
+        }
+
+        const data = await response.json() as {
+          choices?: Array<{ message?: { content?: string | null } }>;
+          error?: { message?: string };
+        };
+
+        const answer = data.choices?.[0]?.message?.content;
+
+        if (!answer) {
+          console.error(data.error?.message || 'The provider returned no text response.');
+          messages.pop();
+          continue;
+        }
+
+        messages.push({ role: 'assistant', content: answer });
+
+        console.log(`\nAI> ${answer}\n`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`AI request failed: ${message}`);
+        messages.pop();
+      }
+    }
+  } finally {
+    rl.close();
+  }
 }
 
 async function askAI(prompt: string, modelChoice?: string): Promise<void> {
