@@ -96,3 +96,121 @@ test('GitHub issue command rejects unsupported state values', () => {
   assert.equal(result.status, 1);
   assert.match(result.stderr, /Usage: dev-assistant gh-issues/);
 });
+
+
+function git(cwd: string, args: string[]): string {
+  const result = spawnSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    timeout: 10_000,
+  });
+  if (result.status !== 0) {
+    throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
+  }
+  return result.stdout.trim();
+}
+
+test('gh-pr-create forwards explicit title, body, base and draft options', () => {
+  const temp = mkdtempSync(path.join(os.tmpdir(), 'dev-assistant-pr-create-'));
+  const binDir = path.join(temp, 'bin');
+  const repo = path.join(temp, 'repo');
+  const argsFile = path.join(temp, 'gh-args.txt');
+  mkdirSync(binDir);
+  mkdirSync(repo);
+
+  const mockGh = path.join(binDir, 'gh');
+  writeFileSync(
+    mockGh,
+    [
+      '#!/bin/sh',
+      'printf "%s\\n" "$@" > "$GH_ARGS_FILE"',
+      'exit 0',
+      '',
+    ].join('\n'),
+  );
+  chmodSync(mockGh, 0o755);
+
+  try {
+    git(repo, ['init', '-b', 'feature/pr-workflow']);
+    git(repo, ['config', 'user.name', 'Dev Assistant Test']);
+    git(repo, ['config', 'user.email', 'dev-assistant-test@example.invalid']);
+
+    writeFileSync(path.join(repo, 'file.txt'), 'base\n');
+    git(repo, ['add', 'file.txt']);
+    git(repo, ['commit', '-m', 'base commit']);
+
+    git(repo, ['remote', 'add', 'origin', 'https://github.com/example/project.git']);
+    git(repo, ['update-ref', 'refs/remotes/origin/feature/pr-workflow', 'HEAD']);
+    git(repo, ['branch', '--set-upstream-to=origin/feature/pr-workflow']);
+
+    writeFileSync(path.join(repo, 'file.txt'), 'feature change\n');
+    git(repo, ['add', 'file.txt']);
+    git(repo, ['commit', '-m', 'add feature change']);
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--import', path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'loader.mjs'),
+        cliPath, 'gh-pr-create',
+        '--title', 'Add PR workflow',
+        '--body', 'Summary with spaces',
+        '--base', 'main',
+        '--draft',
+      ],
+      {
+        cwd: repo,
+        encoding: 'utf8',
+        timeout: 15_000,
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH ?? ''}`,
+          GH_ARGS_FILE: argsFile,
+        },
+      },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(readFileSync(argsFile, 'utf8').trim().split('\n'), [
+      'pr',
+      'create',
+      '--title',
+      'Add PR workflow',
+      '--body',
+      'Summary with spaces',
+      '--head',
+      'feature/pr-workflow',
+      '--base',
+      'main',
+      '--draft',
+    ]);
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test('gh-pr-create rejects missing title or body before invoking gh', () => {
+  const result = spawnSync(
+    process.execPath,
+    ['--import', 'tsx', cliPath, 'gh-pr-create', '--title', 'Missing body'],
+    { cwd: projectRoot, encoding: 'utf8', timeout: 15_000 },
+  );
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Usage: dev-assistant gh-pr-create/);
+});
+
+test('gh-pr-create refuses to create a PR from main', () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      '--import', 'tsx', cliPath, 'gh-pr-create',
+      '--title', 'Test PR',
+      '--body', 'Test body',
+    ],
+    { cwd: projectRoot, encoding: 'utf8', timeout: 15_000 },
+  );
+
+  // This repository is expected to be on main while running its own tests.
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /prohibited from main\/master/);
+});

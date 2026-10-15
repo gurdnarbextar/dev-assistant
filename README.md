@@ -86,9 +86,16 @@ dev-assistant gh-issues all
 dev-assistant gh-prs
 dev-assistant gh-prs all
 dev-assistant gh-runs
+dev-assistant gh-pr-create --title "Add feature" --body "Summary and testing details"
+dev-assistant gh-pr-create --title "Add feature" --body "Summary and testing details" --draft
 ```
 
-These commands use the GitHub CLI and its existing authentication.
+These commands use the GitHub CLI and its existing authentication. Pull-request
+creation is explicit: `gh-pr-create` requires a title and body, refuses to run
+from `main` or `master`, and requires an upstream branch with at least one
+local commit ahead of it. Push the feature branch first; this command does not
+push or commit changes. Use `--base` to select a target branch or `--draft` to
+create a draft pull request.
 
 ### AI assistance
 

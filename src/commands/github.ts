@@ -110,3 +110,117 @@ export function githubRuns(): void {
   if (!requireRepository()) return;
   runGh(['run', 'list', '--limit', '20']);
 }
+
+
+export function githubPrCreate(): void {
+  if (!requireRepository()) return;
+
+  const args = process.argv.slice(3);
+  let title = '';
+  let body = '';
+  let base = '';
+  let draft = false;
+  const seen = new Set<string>();
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === undefined) continue;
+
+    if (arg === '--draft') {
+      if (seen.has(arg)) {
+        console.error('Duplicate option: --draft');
+        process.exitCode = 1;
+        return;
+      }
+      seen.add(arg);
+      draft = true;
+      continue;
+    }
+
+    if (!['--title', '--body', '--base'].includes(arg)) {
+      console.error(
+        'Usage: dev-assistant gh-pr-create --title "Title" --body "Description" [--base branch] [--draft]',
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    const nextArg = args[i + 1];
+    if (seen.has(arg) || nextArg === undefined || nextArg.startsWith('--')) {
+      console.error(`Missing value or duplicate option: ${arg}`);
+      process.exitCode = 1;
+      return;
+    }
+
+    seen.add(arg);
+    i += 1;
+    const value = nextArg.trim();
+
+    if (!value) {
+      console.error(`The value for ${arg} cannot be empty.`);
+      process.exitCode = 1;
+      return;
+    }
+
+    if (arg === '--title') title = value;
+    if (arg === '--body') body = value;
+    if (arg === '--base') base = value;
+  }
+
+  if (!title || !body) {
+    console.error(
+      'Usage: dev-assistant gh-pr-create --title "Title" --body "Description" [--base branch] [--draft]',
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const branchResult = spawnSync('git', ['branch', '--show-current'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+
+  const branch = branchResult.stdout?.trim() ?? '';
+  if (branchResult.status !== 0 || !branch) {
+    console.error('Cannot determine the current branch. Ensure HEAD points to a local branch.');
+    process.exitCode = 1;
+    return;
+  }
+
+  if (branch === 'main' || branch === 'master') {
+    console.error('Pull request creation is prohibited from main/master. Use a feature branch.');
+    process.exitCode = 1;
+    return;
+  }
+
+  const upstreamResult = spawnSync(
+    'git',
+    ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+  );
+
+  if (upstreamResult.status !== 0 || !upstreamResult.stdout?.trim()) {
+    console.error('The current branch has no upstream. Push it and set its upstream before creating a pull request.');
+    process.exitCode = 1;
+    return;
+  }
+
+  const aheadResult = spawnSync('git', ['rev-list', '--count', '@{u}..HEAD'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+
+  const ahead = Number(aheadResult.stdout?.trim());
+  if (aheadResult.status !== 0 || !Number.isInteger(ahead) || ahead < 1) {
+    console.error('Cannot verify commits ahead of upstream. No pull request was created.');
+    process.exitCode = 1;
+    return;
+  }
+
+  const ghArgs = ['pr', 'create', '--title', title, '--body', body, '--head', branch];
+  if (base) ghArgs.push('--base', base);
+  if (draft) ghArgs.push('--draft');
+
+  console.log(`Creating ${draft ? 'draft ' : ''}pull request from branch "${branch}"...`);
+  runGh(ghArgs);
+}
