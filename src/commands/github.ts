@@ -10,7 +10,26 @@ function runGh(args: string[]): boolean {
   });
 
   if (result.error) {
-    console.error(`GitHub CLI error: ${result.error.message}`);
+    const error = result.error as NodeJS.ErrnoException;
+
+    if (error.code === 'ENOENT') {
+      console.error('GitHub CLI (gh) is not installed or is not available on PATH.');
+    } else if (error.code === 'ETIMEDOUT') {
+      console.error('GitHub CLI command timed out after 30 seconds.');
+    } else {
+      console.error(`GitHub CLI could not be executed: ${error.message}`);
+    }
+
+    process.exitCode = 1;
+    return false;
+  }
+
+  if (result.status === null) {
+    console.error(
+      result.signal
+        ? `GitHub CLI was terminated by signal ${result.signal}.`
+        : 'GitHub CLI did not return an exit status.',
+    );
     process.exitCode = 1;
     return false;
   }
@@ -35,10 +54,18 @@ export function githubDoctor(): void {
   const version = spawnSync('gh', ['--version'], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
+    timeout: 10_000,
   });
 
-  if (version.status !== 0) {
-    console.error('GitHub CLI (gh) is not installed or is unavailable.');
+  if (version.error || version.status !== 0) {
+    const error = version.error as NodeJS.ErrnoException | undefined;
+
+    if (error?.code === 'ETIMEDOUT') {
+      console.error('GitHub CLI version check timed out after 10 seconds.');
+    } else {
+      console.error('GitHub CLI (gh) is not installed or is unavailable.');
+    }
+
     process.exitCode = 1;
     return;
   }
