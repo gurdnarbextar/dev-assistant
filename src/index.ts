@@ -10,6 +10,8 @@ import { githubDoctor, githubRepo, githubIssues, githubPrs, githubRuns } from '.
 import { aiConfig, aiAsk, aiDebug, aiReview, aiModels, aiChat } from './commands/ai.js';
 import { gitStage, gitBranch } from './commands/workflow.js';
 import { securityScan, securityHook } from './commands/security.js';
+import { automationCommand } from './commands/automation.js';
+import { aiRepair } from './commands/repair.js';
 
 loadLocalEnv();
 
@@ -51,6 +53,8 @@ Utilities:
                              Review a diff with AI; sending requires --send
   ai-debug "error" [--file report.md]
                              Request AI debugging assistance
+  ai-repair [--apply] [--max-attempts 1-3]
+                             Propose or apply a bounded AI repair
   gh-doctor                  Check GitHub CLI authentication
   gh-repo                    View the current GitHub repository
   gh-issues [state]          List GitHub issues
@@ -61,11 +65,13 @@ Utilities:
   check [script]             Run project checks (typecheck, lint, test, build)
   security-scan             Scan staged changes for likely secrets
   security-hook [action]    Manage the pre-commit security hook
+  automation <action>       Manage local automation
+                             init/status/config/history/run/daemon
   doctor                    Check development tool availability
   version                   Show version
   help                      Show commands
 
-Dev Assistant never pushes automatically.
+Automatic commits and pushes are disabled by default.
 `);
 }
 
@@ -110,6 +116,9 @@ try {
       break;
     case 'ai-review':
       await aiReview();
+      break;
+    case 'ai-repair':
+      await aiRepair();
       break;
     case 'git-stage':
       gitStage();
@@ -161,6 +170,9 @@ try {
       break;
     case 'security-hook':
       securityHook();
+      break;
+    case 'automation':
+      await automationCommand();
       break;
     case 'doctor':
       doctor();
