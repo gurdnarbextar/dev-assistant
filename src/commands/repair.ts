@@ -186,7 +186,8 @@ async function requestPatch(failures: CheckFailure[]): Promise<string> {
     throw new Error('The AI did not return a usable unified diff.');
   }
 
-  return patch;
+  // Git apply requires a terminating newline for a complete unified diff.
+  return `${patch}\n`;
 }
 
 function assertSafeApply(): void {
@@ -277,8 +278,13 @@ function validatePatch(patch: string): void {
   const result = git(['apply', '--check', '--'], patch);
 
   if (result.status !== 0) {
+    const diagnostic = (result.stderr || result.stdout || '').trim().slice(-2000);
     throw new Error(
-      'Git rejected the proposed patch during validation. No patch was applied.',
+      [
+        'Git rejected the proposed patch during validation. No patch was applied.',
+        `Git exit status: ${result.status ?? 'unknown'}.`,
+        diagnostic ? `Git diagnostic: ${diagnostic}` : '',
+      ].filter(Boolean).join(' '),
     );
   }
 }
