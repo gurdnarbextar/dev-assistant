@@ -6,7 +6,7 @@ import { doctor } from './commands/doctor.js';
 import { gitCommit, gitUndoHelp } from './commands/commit.js';
 import { projectInfo, runProjectCheck } from './commands/project.js';
 import { collectDiagnostics } from './commands/diagnostics.js';
-import { githubDoctor, githubRepo, githubIssues, githubPrs, githubRuns, githubPrCreate } from './commands/github.js';
+import { githubDoctor, githubRepo, githubIssues, githubPrs, githubPrChecks, githubRuns, githubPrCreate } from './commands/github.js';
 import { aiConfig, aiAsk, aiDebug, aiReview, aiModels, aiChat } from './commands/ai.js';
 import { gitStage, gitBranch } from './commands/workflow.js';
 import { securityScan, securityHook } from './commands/security.js';
@@ -59,6 +59,7 @@ Utilities:
   gh-repo                    View the current GitHub repository
   gh-issues [state]          List GitHub issues
   gh-prs [state]             List pull requests
+  gh-pr-checks               Show checks for the current pull request
   gh-pr-create --title "..." --body "..." [--base branch] [--draft]
                              Create a PR from a published feature branch
   gh-runs                    List GitHub Actions runs
@@ -154,6 +155,9 @@ try {
       break;
     case 'gh-prs':
       githubPrs();
+      break;
+    case 'gh-pr-checks':
+      githubPrChecks();
       break;
     case 'gh-runs':
       githubRuns();

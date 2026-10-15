@@ -1,0 +1,103 @@
+name: AI Diagnostic Report
+
+on:
+  workflow_dispatch:
+    inputs:
+      check:
+        description: Project check to run and diagnose
+        required: true
+        type: choice
+        options:
+          - typecheck
+          - test
+          - build
+      prompt:
+        description: What should the AI investigate?
+        required: true
+        type: string
+        default: "Explain the check output, identify likely root causes, and recommend the smallest safe fix. Do not modify code."
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Run selected check and generate report
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Initialise report
+        run: |
+          {
+            echo "# AI Diagnostic Report"
+            echo
+            echo "- Repository: $GITHUB_REPOSITORY"
+            echo "- Commit: $GITHUB_SHA"
+            echo "- Selected check: $DIAGNOSTIC_CHECK"
+            echo
+          } > diagnostic-report.md
+        env:
+          DIAGNOSTIC_CHECK: ${{ inputs.check }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build CLI
+        run: npm run build
+
+      - name: Run AI diagnostic
+        id: diagnostic
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_MODEL: ${{ vars.AI_MODEL }}
+          AI_BASE_URL: ${{ vars.AI_BASE_URL }}
+          DIAGNOSTIC_CHECK: ${{ inputs.check }}
+          DIAGNOSTIC_PROMPT: ${{ inputs.prompt }}
+        shell: bash
+        run: |
+          if [ -z "${AI_API_KEY:-}" ]; then
+            echo "AI_API_KEY repository secret is not configured." | tee -a diagnostic-report.md
+            exit 1
+          fi
+
+          if [ -z "${AI_MODEL:-}" ]; then
+            echo "AI_MODEL repository variable is not configured." | tee -a diagnostic-report.md
+            exit 1
+          fi
+
+          if node dist/index.js ai-debug "$DIAGNOSTIC_PROMPT" --check "$DIAGNOSTIC_CHECK" --file diagnostic-report.md > diagnostic-cli.log 2>&1; then
+            result=0
+          else
+            result=$?
+          fi
+
+          {
+            echo
+            echo "## CLI execution log"
+            echo
+            cat diagnostic-cli.log
+          } >> diagnostic-report.md
+
+          cat diagnostic-cli.log
+          exit "$result"
+
+      - name: Upload diagnostic report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-diagnostic-report
+          path: |
+            diagnostic-report.md
+            diagnostic-cli.log
+          if-no-files-found: warn
+          retention-days: 14

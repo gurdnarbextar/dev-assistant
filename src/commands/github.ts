@@ -106,6 +106,11 @@ export function githubPrs(): void {
   runGh(['pr', 'list', '--state', state, '--limit', '30']);
 }
 
+export function githubPrChecks(): void {
+  if (!requireRepository()) return;
+  runGh(['pr', 'checks']);
+}
+
 export function githubRuns(): void {
   if (!requireRepository()) return;
   runGh(['run', 'list', '--limit', '20']);

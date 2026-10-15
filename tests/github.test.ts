@@ -72,6 +72,13 @@ test('gh-prs forwards merged state and result limit', () => {
   assert.deepEqual(recordedArgs, ['pr', 'list', '--state', 'merged', '--limit', '30']);
 });
 
+test('gh-pr-checks requests checks for the current pull request', () => {
+  const { result, recordedArgs } = withMockGh(['gh-pr-checks']);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(recordedArgs, ['pr', 'checks']);
+});
+
 test('gh-runs forwards a bounded run-list request', () => {
   const { result, recordedArgs } = withMockGh(['gh-runs']);
 
