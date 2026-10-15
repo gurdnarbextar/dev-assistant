@@ -260,7 +260,13 @@ test('AI provider errors do not expose response details or API keys', async () =
 async function runAICommandWithMockProvider(
   commandArgs: string[],
   cwd: string,
-): Promise<{ code: number | null; stdout: string; stderr: string; model: string }> {
+): Promise<{
+  code: number | null;
+  stdout: string;
+  stderr: string;
+  model: string;
+  prompt: string;
+}> {
   let requestBody = '';
 
   const server = createServer((request, response) => {
@@ -323,8 +329,14 @@ async function runAICommandWithMockProvider(
         `stdout: ${result.stdout}\nstderr: ${result.stderr}`,
       );
     }
-    const payload = JSON.parse(requestBody) as { model: string };
-    return { ...result, model: payload.model };
+    const payload = JSON.parse(requestBody) as {
+      model: string;
+      messages?: Array<{ role?: string; content?: string }>;
+    };
+    const prompt = (payload.messages ?? [])
+      .map((message) => message.content ?? '')
+      .join('\n');
+    return { ...result, model: payload.model, prompt };
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve());
@@ -341,6 +353,50 @@ test('AI debug forwards the selected model to the provider', async () => {
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stdout, /Mock response successful/);
   assert.equal(result.model, 'test-provider/test-mini-model');
+});
+
+test('AI debug includes validation output and evidence constraints in the provider prompt', async () => {
+  const result = await runAICommandWithMockProvider(
+    ['ai-debug', 'Investigate the current project state', '--check', 'typecheck'],
+    projectRoot,
+  );
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /Diagnostic check passed: typecheck/);
+  assert.match(result.prompt, /Check: npm run typecheck/);
+  assert.match(result.prompt, /Exit status: 0/);
+  assert.match(result.prompt, /Result: passed/);
+  assert.match(result.prompt, /Separate confirmed facts, hypotheses, and unknowns/);
+  assert.match(result.prompt, /Do not invent repository files, test suites/);
+  assert.match(result.prompt, /If evidence is insufficient/);
+  assert.doesNotMatch(result.prompt, /test-only-key/);
+});
+
+test('AI debug rejects a check that the project does not define', async () => {
+  const result = runCliWithEnv(
+    ['ai-debug', 'Investigate this failure', '--check', 'lint'],
+    {
+      AI_API_KEY: '',
+      OPENROUTER_API_KEY: '',
+    },
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /does not define an npm script named "lint"/);
+  assert.doesNotMatch(result.stderr, /API key/i);
+});
+
+test('AI debug rejects an unsupported check name', async () => {
+  const result = runCliWithEnv(
+    ['ai-debug', 'Investigate this failure', '--check', 'deploy'],
+    {
+      AI_API_KEY: '',
+      OPENROUTER_API_KEY: '',
+    },
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Usage: dev-assistant ai-debug/);
 });
 
 test('AI review forwards the selected model to the provider', async () => {
