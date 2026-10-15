@@ -209,7 +209,63 @@ function assertSafeApply(): void {
   }
 }
 
+const PROHIBITED_PATHS = [
+  /^\.git(?:\/|$)/i,
+  /(^|\/)\.env(?:\.[^/]*)?$/i,
+  /(^|\/)node_modules(?:\/|$)/i,
+  /(^|\/)(?:dist|build|coverage|\.next)(?:\/|$)/i,
+  /(^|\/)(?:package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?)$/i,
+  /(^|\/)[^/]*\.(?:pem|key|p12|pfx)$/i,
+];
+
+/** Reject sensitive, generated, dependency-lock and unsafe paths in AI diffs. */
+export function validatePatchPaths(patch: string): void {
+  const headers = patch
+    .split('\n')
+    .filter((line) => line.startsWith('diff --git '));
+
+  if (headers.length === 0) {
+    throw new Error('Patch contains no Git file headers.');
+  }
+
+  for (const header of headers) {
+    // Fail closed when paths cannot be parsed unambiguously.
+    const match = /^diff --git a\/(\S+) b\/(\S+)$/.exec(header);
+
+    if (!match) {
+      throw new Error('Patch contains an ambiguous or unsupported file path.');
+    }
+
+    const oldPath = match[1];
+    const newPath = match[2];
+
+    if (!oldPath || !newPath) {
+      throw new Error('Patch contains an ambiguous or unsupported file path.');
+    }
+
+    for (const rawPath of [oldPath, newPath]) {
+      const filePath = rawPath.replace(/\\/g, '/');
+      const segments = filePath.split('/');
+
+      if (
+        filePath.startsWith('/') ||
+        /^[A-Za-z]:/.test(filePath) ||
+        segments.some((segment) =>
+          segment === '..' || segment === '.' || segment === ''
+        ) ||
+        PROHIBITED_PATHS.some((pattern) => pattern.test(filePath))
+      ) {
+        throw new Error(
+          `Patch targets a prohibited or unsafe path: ${filePath}`,
+        );
+      }
+    }
+  }
+}
+
 function validatePatch(patch: string): void {
+  validatePatchPaths(patch);
+
   const result = git(['apply', '--check', '--'], patch);
 
   if (result.status !== 0) {
@@ -264,12 +320,6 @@ export async function aiRepair(): Promise<void> {
 
       if (failures.length === 0) {
         console.log('All available validation checks passed.');
-        return;
-      }
-
-      if (attempt === maxAttempts && apply) {
-        console.error('Validation still fails. Attempt limit reached.');
-        process.exitCode = 1;
         return;
       }
 

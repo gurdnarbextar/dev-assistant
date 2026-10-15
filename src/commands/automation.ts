@@ -278,7 +278,7 @@ function runCommand(
   return {
     status: result.status,
     signal: result.signal,
-    timedOut: result.error?.code === 'ETIMEDOUT',
+    timedOut: (result.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT',
     stdout: typeof result.stdout === 'string' ? result.stdout : '',
     stderr: typeof result.stderr === 'string' ? result.stderr : '',
   };
