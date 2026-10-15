@@ -131,10 +131,24 @@ export function runProjectCheck(): void {
       cwd: root,
       stdio: 'inherit',
       shell: false,
+      timeout: 10 * 60 * 1000,
+      env: { ...process.env, CI: '1' },
     });
 
-    if (result.error || result.status !== 0) {
-      console.error(`[FAIL] ${name}`);
+    if (result.error) {
+      const timedOut =
+        (result.error as NodeJS.ErrnoException).code === 'ETIMEDOUT';
+
+      console.error(
+        timedOut
+          ? `[FAIL] ${name}: timed out after 10 minutes.`
+          : `[FAIL] ${name}: could not start (${result.error.message}).`,
+      );
+      failed = true;
+    } else if (result.status !== 0) {
+      console.error(
+        `[FAIL] ${name}: exited with status ${result.status ?? 'unknown'}.`,
+      );
       failed = true;
     } else {
       console.log(`[PASS] ${name}`);

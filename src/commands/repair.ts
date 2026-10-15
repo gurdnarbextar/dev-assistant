@@ -57,14 +57,22 @@ function runChecks(): CheckFailure[] {
       const output = redact(
         `${result.stdout || ''}\n${result.stderr || ''}`.trim(),
       );
+      const timedOut =
+        (result.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT';
+      const startupError = result.error && !timedOut
+        ? `Could not start validation command: ${result.error.message}`
+        : '';
+      const diagnostic = timedOut
+        ? 'Validation command timed out after 10 minutes.'
+        : startupError ||
+          `Command failed with status ${result.status ?? 'unknown'}.`;
 
       failures.push({
         script,
-        output: output.slice(-MAX_OUTPUT) ||
-          `Command failed with status ${result.status ?? 'unknown'}.`,
+        output: [diagnostic, output].filter(Boolean).join('\n').slice(-MAX_OUTPUT),
       });
 
-      console.error(`Validation failed: ${script}`);
+      console.error(`Validation failed: ${script}${timedOut ? ' (timeout)' : ''}`);
     } else {
       console.log(`Validation passed: ${script}`);
     }
