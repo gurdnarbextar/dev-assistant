@@ -9,8 +9,9 @@ export function runGit(args: string[], cwd = process.cwd()): string {
   }).trim();
 }
 
-export function isGitRepository(): boolean {
+export function isGitRepository(cwd = process.cwd()): boolean {
   const result = spawnSync('git', ['rev-parse', '--show-toplevel'], {
+    cwd,
     encoding: 'utf8',
     stdio: 'ignore',
   });

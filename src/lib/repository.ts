@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import process from 'node:process';
 import { runGit, isGitRepository } from './git.js';
 
 const MAX_FILE_BYTES = 40_000;
@@ -16,11 +17,11 @@ export interface RepositoryContext {
   projectFiles: Record<string, string>;
 }
 
-function repositoryRoot(): string | null {
-  if (!isGitRepository()) return null;
+function repositoryRoot(startDirectory = process.cwd()): string | null {
+  if (!isGitRepository(startDirectory)) return null;
 
   try {
-    return fs.realpathSync(runGit(['rev-parse', '--show-toplevel']));
+    return fs.realpathSync(runGit(['rev-parse', '--show-toplevel'], startDirectory));
   } catch {
     return null;
   }
@@ -86,8 +87,8 @@ function readSafeProjectFile(
   }
 }
 
-export function getRepositoryContext(): RepositoryContext | null {
-  const root = repositoryRoot();
+export function getRepositoryContext(startDirectory = process.cwd()): RepositoryContext | null {
+  const root = repositoryRoot(startDirectory);
 
   if (!root) return null;
 
@@ -97,15 +98,15 @@ export function getRepositoryContext(): RepositoryContext | null {
   let recentCommits: string[] = [];
 
   try {
-    branch = runGit(['branch', '--show-current']) || '(detached HEAD)';
+    branch = runGit(['branch', '--show-current'], root) || '(detached HEAD)';
   } catch {}
 
   try {
-    status = runGit(['status', '--short']) || '(clean)';
+    status = runGit(['status', '--short'], root) || '(clean)';
   } catch {}
 
   try {
-    files = runGit(['ls-files'])
+    files = runGit(['ls-files'], root)
       .split('\n')
       .filter(Boolean)
       .filter((file) => {
@@ -123,7 +124,7 @@ export function getRepositoryContext(): RepositoryContext | null {
       `-${MAX_LOG_ENTRIES}`,
       '--oneline',
       '--decorate',
-    ])
+    ], root)
       .split('\n')
       .filter(Boolean);
   } catch {}
@@ -190,8 +191,8 @@ export function formatRepositoryContext(context: RepositoryContext): string {
   );
 }
 
-export function readRepositoryFile(relativePath: string): string | null {
-  const root = repositoryRoot();
+export function readRepositoryFile(relativePath: string, startDirectory = process.cwd()): string | null {
+  const root = repositoryRoot(startDirectory);
 
   if (!root) return null;
 

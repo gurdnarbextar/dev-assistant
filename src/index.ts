@@ -12,6 +12,7 @@ import { gitStage, gitBranch } from './commands/workflow.js';
 import { securityScan, securityHook } from './commands/security.js';
 import { automationCommand } from './commands/automation.js';
 import { aiRepair } from './commands/repair.js';
+import { launchGui } from './commands/gui.js';
 
 loadLocalEnv();
 
@@ -71,6 +72,7 @@ Utilities:
   automation <action>       Manage local automation
                              init/status/config/history/run/daemon
   doctor                    Check development tool availability
+  gui                       Open the local browser interface
   version                   Show version
   help                      Show commands
 
@@ -87,6 +89,9 @@ try {
     case '--help':
     case '-h':
       printHelp();
+      break;
+    case 'gui':
+      await launchGui();
       break;
     case 'version':
     case '--version':
