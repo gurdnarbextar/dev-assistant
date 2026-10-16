@@ -124,7 +124,7 @@ function getPaths(root: string): Paths {
   const projectId = createHash('sha256')
     .update(root)
     .digest('hex')
-    .slice(0, 32);
+    .slice(0, 16);
 
   const configBase =
     process.env.XDG_CONFIG_HOME?.trim() ||
@@ -602,11 +602,13 @@ function acquireLock(paths: Paths): () => void {
     try {
       const existing = JSON.parse(
         readFileSync(paths.lock, 'utf8'),
-      ) as {
-        pid?: unknown;
-      };
+      ) as { pid?: unknown };
 
-      if (typeof existing.pid === 'number') {
+      if (
+        typeof existing.pid === 'number' &&
+        Number.isSafeInteger(existing.pid) &&
+        existing.pid > 0
+      ) {
         existingPid = existing.pid;
       }
     } catch {
@@ -614,27 +616,36 @@ function acquireLock(paths: Paths): () => void {
     }
 
     if (existingPid !== undefined) {
+      let ownerIsAlive = false;
+
       try {
         process.kill(existingPid, 0);
-        fail(
-          `Automation run is already locked by process ${existingPid}.`,
-        );
+        ownerIsAlive = true;
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code;
 
         if (code === 'EPERM') {
-          fail(
-            `Automation run is locked by process ${existingPid}.`,
-          );
-        }
-
-        if (code !== 'ESRCH') {
+          ownerIsAlive = true;
+        } else if (code !== 'ESRCH') {
           throw error;
         }
       }
+
+      if (ownerIsAlive) {
+        fail(
+          `Automation run is already locked by process ${existingPid}.`,
+        );
+      }
     }
 
-    unlinkSync(paths.lock);
+    // Recover a stale lock and compete for exclusive ownership.
+    try {
+      unlinkSync(paths.lock);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
 
     try {
       fd = openSync(paths.lock, 'wx', 0o600);
@@ -647,14 +658,17 @@ function acquireLock(paths: Paths): () => void {
     fail('Unable to acquire the automation lock.');
   }
 
-  writeFileSync(fd, payload, 'utf8');
-  closeSync(fd);
+  try {
+    writeFileSync(fd, payload, 'utf8');
+  } finally {
+    closeSync(fd);
+  }
 
   return () => {
     try {
       unlinkSync(paths.lock);
     } catch {
-      // Lock may have been recovered by another process.
+      // Do not mask the run result if the lock is already gone.
     }
   };
 }
@@ -939,6 +953,12 @@ function printConfig(
       2,
     ),
   );
+  console.log(
+    `Automatic commits: ${config.autoCommitStaged ? 'enabled' : 'disabled'}`,
+  );
+  console.log(
+    `Automatic pushes: ${config.autoPush ? 'enabled' : 'disabled'}`,
+  );
 }
 
 function automationInit(): void {
@@ -955,7 +975,7 @@ function automationInit(): void {
     });
 
     console.log(
-      `Automation configuration created: ${paths.config}`,
+      `Automation configuration initialized: ${paths.config}`,
     );
   } else {
     console.log(
@@ -1036,6 +1056,15 @@ function automationStatus(): void {
   );
   console.log(
     `Recorded runs: ${history.length}`,
+  );
+
+  const lastRun = history.at(-1);
+  console.log(
+    `Last run: ${
+      lastRun
+        ? `${lastRun.finishedAt} (${lastRun.status})`
+        : 'never'
+    }`,
   );
 }
 
