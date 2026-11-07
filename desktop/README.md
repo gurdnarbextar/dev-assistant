@@ -45,3 +45,12 @@ The initial desktop runtime expects Node.js 22 or later to be installed and
 available as `node` on PATH. The Tauri bundle includes the compiled CLI
 resources, but does not yet embed a Node.js runtime. A self-contained release
 will require packaging a platform-specific Node sidecar.
+
+## Opening repositories
+
+The project selector supports local repository paths and remote Git clone URLs.
+For remote repositories, enter an HTTPS or SSH URL and optionally a branch or
+tag. The clone is stored under `~/.dev-assistant/projects` and opened as a
+local working copy. Private repositories use the Git credential helper or SSH
+keys already configured on the computer. Do not embed passwords or tokens in
+clone URLs. Cloning does not push changes back to the remote automatically.
