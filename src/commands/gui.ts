@@ -236,6 +236,10 @@ export async function launchGui(): Promise<void> {
     const url = `http://127.0.0.1:${address.port}/`;
     expectedOrigin = new URL(url).origin;
     console.log(`Dev Assistant GUI running at ${url}`);
+    if (process.env.DEV_ASSISTANT_TAURI === '1') {
+      console.log('Dev Assistant desktop window is connecting to the local GUI.');
+      return;
+    }
     console.log('Keep this terminal open while using the GUI. Press Ctrl+C to stop.');
     const browser = spawn('xdg-open', [url], { detached: true, stdio: 'ignore' });
     browser.on('error', () => console.log(`Open this address in your browser: ${url}`));
