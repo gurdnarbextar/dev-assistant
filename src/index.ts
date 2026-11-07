@@ -54,8 +54,8 @@ Utilities:
                              Review a diff with AI; sending requires --send
   ai-debug "error" [--file report.md]
                              Request AI debugging assistance
-  ai-repair [--apply] [--max-attempts 1-3]
-                             Propose or apply a bounded AI repair
+  ai-repair --run-checks [--apply] [--max-attempts 1-3]
+                             Explicitly run project checks and propose/apply a bounded AI repair
   gh-doctor                  Check GitHub CLI authentication
   gh-repo                    View the current GitHub repository
   gh-issues [state]          List GitHub issues
