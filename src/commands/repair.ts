@@ -382,7 +382,7 @@ export async function aiRepair(): Promise<void> {
 
       if (!apply) {
         console.log('Preview only. No files were modified.');
-        console.log('Review the patch, then use --apply on a clean repair branch to apply and revalidate.');
+        console.log('Review the patch, then use --run-checks --apply on a clean repair branch to apply and revalidate.');
         return;
       }
 
