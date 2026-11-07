@@ -34,3 +34,34 @@ test('GUI rejects missing and incorrect request tokens', () => {
     'x-dev-assistant-token': 'wrong-token',
   }, origin, token), false);
 });
+
+
+import { validateRemoteGitUrl } from '../src/lib/remote-repository.js';
+
+test('remote project URLs accept HTTPS and SSH clone formats', () => {
+  assert.equal(
+    validateRemoteGitUrl('https://github.com/example/project.git'),
+    'https://github.com/example/project.git',
+  );
+  assert.equal(
+    validateRemoteGitUrl('git@github.com:example/project.git'),
+    'git@github.com:example/project.git',
+  );
+  assert.equal(
+    validateRemoteGitUrl('ssh://git@gitlab.com/example/project.git'),
+    'ssh://git@gitlab.com/example/project.git',
+  );
+});
+
+test('remote project URLs reject local paths, unsupported protocols and embedded credentials', () => {
+  for (const value of [
+    '/home/user/project',
+    'file:///tmp/project',
+    'git://github.com/example/project.git',
+    'https://user:password@example.com/project.git',
+    'https://example.com/project.git?token=secret',
+    '',
+  ]) {
+    assert.throws(() => validateRemoteGitUrl(value));
+  }
+});
