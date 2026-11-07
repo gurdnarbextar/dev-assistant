@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import process from 'node:process';
 import { getRepositoryContext, readRepositoryFile } from '../lib/repository.js';
+import { cloneRemoteRepository } from '../lib/remote-repository.js';
 
 const PAGE = `<!doctype html>
 <html lang="en">
@@ -32,10 +33,23 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:65vh;overflow:auto;ba
 <main>
 <section id="chooser" class="panel">
 <h2>Select a project</h2>
-<p class="muted">Enter the absolute path to a local Git repository on this computer.</p>
+<p class="muted">Open a repository from this computer or clone one from a Git server.</p>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin:16px 0">
+<button type="button" id="localTab">Local repository</button>
+<button type="button" id="remoteTab">Remote repository</button>
+</div>
 <form id="selectForm">
-<input id="folder" placeholder="/home/kingche/Program.dev/your-project" required>
-<button type="submit">Open project</button>
+<label for="folder">Absolute path to a local Git repository</label>
+<input id="folder" placeholder="/home/user/projects/my-project" required>
+<button type="submit">Open local project</button>
+</form>
+<form id="remoteForm" class="hidden">
+<label for="remoteUrl">Git clone URL (HTTPS or SSH)</label>
+<input id="remoteUrl" placeholder="https://github.com/owner/repository.git" required>
+<label for="branch">Branch or tag (optional)</label>
+<input id="branch" placeholder="Leave blank to use the default branch">
+<p class="muted">The repository will be cloned into ~/.dev-assistant/projects. Private repositories use your configured Git credentials or SSH keys.</p>
+<button type="submit">Clone and open project</button>
 </form>
 <div id="message" class="status"></div>
 </section>
@@ -58,20 +72,36 @@ async function api(url,data){
  if(!r.ok)throw new Error(result.error||'Request failed');
  return result;
 }
+function showProject(result){
+ selected=true;$('chooser').classList.add('hidden');$('workspace').classList.remove('hidden');
+ $('projectTitle').textContent=result.root;
+ $('summary').textContent='Branch: '+result.branch+' | Git status: '+result.status;
+ $('files').replaceChildren();
+ for(const file of result.files){
+  const b=document.createElement('button');b.textContent=file;
+  b.addEventListener('click',()=>openFile(file));$('files').appendChild(b);
+ }
+ $('fileTitle').textContent='Project overview';
+ $('preview').textContent='Choose a tracked file to preview it. Files over the safety limit and sensitive paths are not displayed.';
+}
+$('localTab').addEventListener('click',()=>{
+ $('selectForm').classList.remove('hidden');$('remoteForm').classList.add('hidden');
+ $('message').textContent='';
+});
+$('remoteTab').addEventListener('click',()=>{
+ $('remoteForm').classList.remove('hidden');$('selectForm').classList.add('hidden');
+ $('message').textContent='';
+});
 $('selectForm').addEventListener('submit',async e=>{
- e.preventDefault();$('message').textContent='Checking repository...';
+ e.preventDefault();$('message').textContent='Checking local repository...';
+ try{showProject(await api('/api/select',{directory:$('folder').value.trim()}));}
+ catch(err){$('message').textContent=err.message;}
+});
+$('remoteForm').addEventListener('submit',async e=>{
+ e.preventDefault();$('message').textContent='Cloning repository. This may take several minutes...';
  try{
-  const result=await api('/api/select',{directory:$('folder').value.trim()});
-  selected=true;$('chooser').classList.add('hidden');$('workspace').classList.remove('hidden');
-  $('projectTitle').textContent=result.root;
-  $('summary').textContent='Branch: '+result.branch+' | Git status: '+result.status;
-  $('files').replaceChildren();
-  for(const file of result.files){
-   const b=document.createElement('button');b.textContent=file;
-   b.addEventListener('click',()=>openFile(file));$('files').appendChild(b);
-  }
-  $('fileTitle').textContent='Project overview';
-  $('preview').textContent='Choose a tracked file to preview it. Files over the safety limit and sensitive paths are not displayed.';
+  const result=await api('/api/clone',{remoteUrl:$('remoteUrl').value.trim(),branch:$('branch').value.trim()});
+  showProject(result);
  }catch(err){$('message').textContent=err.message;}
 });
 async function openFile(file){
@@ -183,7 +213,25 @@ export async function launchGui(): Promise<void> {
       const body = JSON.parse(raw || '{}') as {
         directory?: string;
         file?: string;
+        remoteUrl?: string;
+        branch?: string;
       };
+
+      if (req.url === '/api/clone') {
+        if (!body.remoteUrl) throw new Error('Enter a Git clone URL.');
+        const clonedRoot = await cloneRemoteRepository(body.remoteUrl, body.branch);
+        const context = getRepositoryContext(clonedRoot);
+        if (!context) throw new Error('The repository was cloned, but Git could not open the resulting project.');
+        selectedRoot = context.root;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          root: context.root,
+          branch: context.branch,
+          status: context.status,
+          files: context.files
+        }));
+        return;
+      }
 
       if (req.url === '/api/select') {
         if (!body.directory || !path.isAbsolute(body.directory)) {
