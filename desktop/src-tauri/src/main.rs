@@ -111,6 +111,7 @@ fn main() {
             let parsed_url = url.parse()
                 .map_err(|error| io_error(format!("Invalid local service URL: {error}")))?;
 
+            let expected_port = parsed_url.port();
             WebviewWindowBuilder::new(
                 app,
                 "main",
@@ -119,8 +120,10 @@ fn main() {
             .title("Dev Assistant")
             .inner_size(1280.0, 840.0)
             .min_inner_size(900.0, 600.0)
-            .on_navigation(|url| {
-                url.scheme() == "http" && url.host_str() == Some("127.0.0.1")
+            .on_navigation(move |url| {
+                url.scheme() == "http"
+                    && url.host_str() == Some("127.0.0.1")
+                    && url.port() == expected_port
             })
             .build()?;
 
