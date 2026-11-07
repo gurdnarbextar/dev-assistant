@@ -29,6 +29,29 @@ npm run dev -- help
 
 After source changes, rebuild with `npm run build`.
 
+## Desktop application (Tauri)
+
+The desktop application wraps the existing Node.js CLI and local GUI in a
+native Tauri window. The CLI remains the application core.
+
+On Fedora, install the Tauri system dependencies and Rust toolchain as
+documented in [desktop/README.md](desktop/README.md), then install the desktop
+dependencies and launch the window:
+
+```bash
+npm install --prefix desktop
+npm --prefix desktop run dev
+```
+
+The initial desktop runtime requires Node.js 22 or later on `PATH`. The
+compiled CLI is bundled, but the Node.js runtime is not yet embedded.
+
+The desktop GUI supports both local Git repositories and remote HTTPS/SSH clone
+URLs. Remote repositories are cloned into `~/.dev-assistant/projects` and
+opened as local working copies. Private remotes use the system Git credential
+helper or SSH keys; credentials must not be embedded in clone URLs. Dev
+Assistant does not push changes automatically.
+
 ## Commands
 
 ### Git inspection
@@ -121,6 +144,7 @@ dev-assistant ai-debug "Describe the error" --file diagnostics.md
 dev-assistant ai-review
 dev-assistant ai-review --staged
 dev-assistant ai-review --staged --send
+dev-assistant ai-repair --run-checks
 ```
 
 The API URL must expose an OpenAI-compatible Chat Completions endpoint.
@@ -129,6 +153,16 @@ or selected diff to the configured provider. `ai-review` previews locally
 unless `--send` is specified. Only tracked diffs are included in AI reviews;
 untracked files are not automatically uploaded. Files passed to `ai-debug`
 are sent to the provider, so inspect them first.
+
+AI repair is deliberately opt-in because project validation scripts can execute
+arbitrary commands. The `--run-checks` flag explicitly authorises those scripts,
+including in preview mode. Applying a proposed patch additionally requires
+`--apply` and a clean, non-main repair branch. Repair patches are restricted to
+in-place edits of existing regular text files; mode changes, symlinks, renames,
+copies, binary patches, sensitive paths, generated output, and dependency
+lockfiles are rejected. If post-apply checks fail, the tool attempts to reverse
+the patch and reports an error if rollback cannot be completed. Review the
+working tree after every repair attempt.
 
 ## Verification
 

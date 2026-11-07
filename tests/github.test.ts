@@ -207,17 +207,31 @@ test('gh-pr-create rejects missing title or body before invoking gh', () => {
 });
 
 test('gh-pr-create refuses to create a PR from main', () => {
-  const result = spawnSync(
-    process.execPath,
-    [
-      '--import', 'tsx', cliPath, 'gh-pr-create',
-      '--title', 'Test PR',
-      '--body', 'Test body',
-    ],
-    { cwd: projectRoot, encoding: 'utf8', timeout: 15_000 },
-  );
+  const repo = mkdtempSync(path.join(os.tmpdir(), 'dev-assistant-main-branch-'));
 
-  // This repository is expected to be on main while running its own tests.
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /prohibited from main\/master/);
+  try {
+    // Use an isolated fixture: CI checks out pull requests with detached HEAD.
+    git(repo, ['init', '-b', 'main']);
+    git(repo, ['config', 'user.name', 'Dev Assistant Test']);
+    git(repo, ['config', 'user.email', 'dev-assistant-test@example.invalid']);
+    writeFileSync(path.join(repo, 'file.txt'), 'base\n');
+    git(repo, ['add', 'file.txt']);
+    git(repo, ['commit', '-m', 'base commit']);
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--import', path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'loader.mjs'),
+        cliPath, 'gh-pr-create',
+        '--title', 'Test PR',
+        '--body', 'Test body',
+      ],
+      { cwd: repo, encoding: 'utf8', timeout: 15_000 },
+    );
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /prohibited from main\/master/);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
 });

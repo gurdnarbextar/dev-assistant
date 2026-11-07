@@ -29,7 +29,7 @@ function redact(text: string): string {
 }
 
 function runChecks(): CheckFailure[] {
-  let packageJson: { scripts?: Record<string, unknown> };
+  let packageJson: { scripts?: Record<string, unknown>; packageManager?: string };
 
   try {
     packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
@@ -38,15 +38,28 @@ function runChecks(): CheckFailure[] {
   }
 
   const failures: CheckFailure[] = [];
+  const scripts = packageJson.scripts ?? {};
+  const available = CHECKS.filter((script) => typeof scripts[script] === 'string');
 
-  for (const script of CHECKS) {
-    if (typeof packageJson.scripts?.[script] !== 'string') {
-      continue;
-    }
+  if (available.length === 0) {
+    return [{
+      script: 'validation',
+      output: 'No supported validation scripts are defined. Add typecheck, lint, test, or build before using AI repair.',
+    }];
+  }
 
-    console.log(`Running validation: ${script}`);
+  const managerName = packageJson.packageManager?.split('@')[0];
+  const manager = managerName === 'pnpm' || managerName === 'yarn' || managerName === 'bun'
+    ? managerName
+    : 'npm';
+  const managerPrefix = manager === 'npm' || manager === 'pnpm' || manager === 'bun'
+    ? ['run']
+    : [];
 
-    const result = spawnSync('npm', ['run', script], {
+  for (const script of available) {
+    console.log(`Running validation: ${script} (${manager})`);
+
+    const result = spawnSync(manager, [...managerPrefix, script], {
       encoding: 'utf8',
       timeout: 10 * 60 * 1000,
       maxBuffer: 8 * 1024 * 1024,
@@ -227,46 +240,57 @@ const PROHIBITED_PATHS = [
   /(^|\/)[^/]*\.(?:pem|key|p12|pfx)$/i,
 ];
 
-/** Reject sensitive, generated, dependency-lock and unsafe paths in AI diffs. */
+/** Reject sensitive paths and every Git patch operation outside text edits. */
 export function validatePatchPaths(patch: string): void {
-  const headers = patch
-    .split('\n')
-    .filter((line) => line.startsWith('diff --git '));
+  const lines = patch.split('\n');
+  const headers = lines.filter((line) => line.startsWith('diff --git '));
 
   if (headers.length === 0) {
     throw new Error('Patch contains no Git file headers.');
   }
 
-  for (const header of headers) {
-    // Fail closed when paths cannot be parsed unambiguously.
-    const match = /^diff --git a\/(\S+) b\/(\S+)$/.exec(header);
+  const unsupported = /^(?:new file mode|deleted file mode|old mode|new mode|similarity index|dissimilarity index|rename from|rename to|copy from|copy to|GIT binary patch|Binary files )/i;
+  if (lines.some((line) => unsupported.test(line))) {
+    throw new Error('Patch contains an unsupported mode change, rename, copy, or binary operation.');
+  }
 
-    if (!match) {
+  const blocks = patch.split(/(?=^diff --git )/m).filter((block) => block.startsWith('diff --git '));
+  for (const block of blocks) {
+    const blockLines = block.split('\n');
+    const header = blockLines[0] ?? '';
+    const match = /^diff --git a\/([^\s]+) b\/([^\s]+)$/.exec(header);
+
+    if (!match?.[1] || !match[2]) {
       throw new Error('Patch contains an ambiguous or unsupported file path.');
     }
 
     const oldPath = match[1];
     const newPath = match[2];
+    if (oldPath !== newPath) {
+      throw new Error('Patch renames or copies are not supported.');
+    }
+    const indexMode = blockLines.find((line) => line.startsWith('index '));
+    if (indexMode && !/^index [0-9a-f]+\.\.[0-9a-f]+ 100644$/i.test(indexMode)) {
+      throw new Error('Patch contains a non-regular-file mode change.');
+    }
+    const oldHeader = blockLines.find((line) => line.startsWith('--- '));
+    const newHeader = blockLines.find((line) => line.startsWith('+++ '));
 
-    if (!oldPath || !newPath) {
-      throw new Error('Patch contains an ambiguous or unsupported file path.');
+    if (oldHeader !== `--- a/${oldPath}` || newHeader !== `+++ b/${newPath}`) {
+      throw new Error('Patch must contain matching text-file headers; file creation and deletion are not supported.');
     }
 
-    for (const rawPath of [oldPath, newPath]) {
-      const filePath = rawPath.replace(/\\/g, '/');
+    for (const filePath of [oldPath, newPath]) {
       const segments = filePath.split('/');
-
       if (
         filePath.startsWith('/') ||
         /^[A-Za-z]:/.test(filePath) ||
-        segments.some((segment) =>
-          segment === '..' || segment === '.' || segment === ''
-        ) ||
+        filePath.includes('\\') ||
+        /[\u0000-\u001f\u007f]/.test(filePath) ||
+        segments.some((segment) => segment === '..' || segment === '.' || segment === '') ||
         PROHIBITED_PATHS.some((pattern) => pattern.test(filePath))
       ) {
-        throw new Error(
-          `Patch targets a prohibited or unsafe path: ${filePath}`,
-        );
+        throw new Error(`Patch targets a prohibited or unsafe path: ${filePath}`);
       }
     }
   }
@@ -289,6 +313,14 @@ function validatePatch(patch: string): void {
   }
 }
 
+function rollbackPatch(patch: string): void {
+  const result = git(['apply', '--reverse', '--'], patch);
+  if (result.status !== 0) {
+    throw new Error('Validation failed and automatic rollback also failed. Stop and inspect the working tree before proceeding.');
+  }
+  console.error('Post-apply validation failed; the proposed patch was rolled back.');
+}
+
 function applyPatch(patch: string): void {
   const result = git(['apply', '--'], patch);
 
@@ -302,6 +334,7 @@ function applyPatch(patch: string): void {
 export async function aiRepair(): Promise<void> {
   const args = process.argv.slice(3);
   const apply = args.includes('--apply');
+  const runChecksOptIn = args.includes('--run-checks');
   const maxIndex = args.indexOf('--max-attempts');
   let maxAttempts = 1;
 
@@ -309,7 +342,7 @@ export async function aiRepair(): Promise<void> {
     const raw = args[maxIndex + 1];
 
     if (!raw || !/^\d+$/.test(raw)) {
-      console.error('Usage: ai-repair [--apply] [--max-attempts 1-3]');
+      console.error('Usage: ai-repair --run-checks [--apply] [--max-attempts 1-3]');
       process.exitCode = 1;
       return;
     }
@@ -324,6 +357,10 @@ export async function aiRepair(): Promise<void> {
   }
 
   try {
+    if (!runChecksOptIn) {
+      throw new Error('Project scripts can execute arbitrary commands. Pass --run-checks to explicitly authorise running them; preview mode does not execute scripts by default.');
+    }
+
     if (apply) {
       assertSafeApply();
     }
@@ -345,7 +382,7 @@ export async function aiRepair(): Promise<void> {
 
       if (!apply) {
         console.log('Preview only. No files were modified.');
-        console.log('Review the patch, then use --apply on a clean repair branch to apply and revalidate.');
+        console.log('Review the patch, then use --run-checks --apply on a clean repair branch to apply and revalidate.');
         return;
       }
 
@@ -361,6 +398,8 @@ export async function aiRepair(): Promise<void> {
         console.log('Repair verified: all available checks passed.');
         return;
       }
+
+      rollbackPatch(patch);
 
       if (attempt === maxAttempts) {
         console.error('Repair did not resolve all validation failures.');

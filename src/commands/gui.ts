@@ -1,9 +1,11 @@
 import { createServer } from 'node:http';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
+import type { IncomingHttpHeaders } from 'node:http';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import process from 'node:process';
 import { getRepositoryContext, readRepositoryFile } from '../lib/repository.js';
+import { cloneRemoteRepository } from '../lib/remote-repository.js';
 
 const PAGE = `<!doctype html>
 <html lang="en">
@@ -31,10 +33,23 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:65vh;overflow:auto;ba
 <main>
 <section id="chooser" class="panel">
 <h2>Select a project</h2>
-<p class="muted">Enter the absolute path to a local Git repository on this computer.</p>
+<p class="muted">Open a repository from this computer or clone one from a Git server.</p>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin:16px 0">
+<button type="button" id="localTab">Local repository</button>
+<button type="button" id="remoteTab">Remote repository</button>
+</div>
 <form id="selectForm">
-<input id="folder" placeholder="/home/kingche/Program.dev/your-project" required>
-<button type="submit">Open project</button>
+<label for="folder">Absolute path to a local Git repository</label>
+<input id="folder" placeholder="/home/user/projects/my-project" required>
+<button type="submit">Open local project</button>
+</form>
+<form id="remoteForm" class="hidden">
+<label for="remoteUrl">Git clone URL (HTTPS or SSH)</label>
+<input id="remoteUrl" placeholder="https://github.com/owner/repository.git" required>
+<label for="branch">Branch or tag (optional)</label>
+<input id="branch" placeholder="Leave blank to use the default branch">
+<p class="muted">The repository will be cloned into ~/.dev-assistant/projects. Private repositories use your configured Git credentials or SSH keys.</p>
+<button type="submit">Clone and open project</button>
 </form>
 <div id="message" class="status"></div>
 </section>
@@ -57,20 +72,36 @@ async function api(url,data){
  if(!r.ok)throw new Error(result.error||'Request failed');
  return result;
 }
+function showProject(result){
+ selected=true;$('chooser').classList.add('hidden');$('workspace').classList.remove('hidden');
+ $('projectTitle').textContent=result.root;
+ $('summary').textContent='Branch: '+result.branch+' | Git status: '+result.status;
+ $('files').replaceChildren();
+ for(const file of result.files){
+  const b=document.createElement('button');b.textContent=file;
+  b.addEventListener('click',()=>openFile(file));$('files').appendChild(b);
+ }
+ $('fileTitle').textContent='Project overview';
+ $('preview').textContent='Choose a tracked file to preview it. Files over the safety limit and sensitive paths are not displayed.';
+}
+$('localTab').addEventListener('click',()=>{
+ $('selectForm').classList.remove('hidden');$('remoteForm').classList.add('hidden');
+ $('message').textContent='';
+});
+$('remoteTab').addEventListener('click',()=>{
+ $('remoteForm').classList.remove('hidden');$('selectForm').classList.add('hidden');
+ $('message').textContent='';
+});
 $('selectForm').addEventListener('submit',async e=>{
- e.preventDefault();$('message').textContent='Checking repository...';
+ e.preventDefault();$('message').textContent='Checking local repository...';
+ try{showProject(await api('/api/select',{directory:$('folder').value.trim()}));}
+ catch(err){$('message').textContent=err.message;}
+});
+$('remoteForm').addEventListener('submit',async e=>{
+ e.preventDefault();$('message').textContent='Cloning repository. This may take several minutes...';
  try{
-  const result=await api('/api/select',{directory:$('folder').value.trim()});
-  selected=true;$('chooser').classList.add('hidden');$('workspace').classList.remove('hidden');
-  $('projectTitle').textContent=result.root;
-  $('summary').textContent='Branch: '+result.branch+' | Git status: '+result.status;
-  $('files').replaceChildren();
-  for(const file of result.files){
-   const b=document.createElement('button');b.textContent=file;
-   b.addEventListener('click',()=>openFile(file));$('files').appendChild(b);
-  }
-  $('fileTitle').textContent='Project overview';
-  $('preview').textContent='Choose a tracked file to preview it. Files over the safety limit and sensitive paths are not displayed.';
+  const result=await api('/api/clone',{remoteUrl:$('remoteUrl').value.trim(),branch:$('branch').value.trim()});
+  showProject(result);
  }catch(err){$('message').textContent=err.message;}
 });
 async function openFile(file){
@@ -84,16 +115,53 @@ $('changeProject').addEventListener('click',()=>{
 </script>
 </body></html>`;
 
+/** Require same-origin browser requests and the per-process bearer token. */
+export function isTrustedGuiRequest(
+  headers: IncomingHttpHeaders,
+  expectedOrigin: string,
+  token: string,
+): boolean {
+  const suppliedToken = headers['x-dev-assistant-token'];
+  if (
+    headers.host !== new URL(expectedOrigin).host ||
+    headers.origin !== expectedOrigin ||
+    typeof suppliedToken !== 'string'
+  ) {
+    return false;
+  }
+  const expected = Buffer.from(token);
+  const supplied = Buffer.from(suppliedToken);
+  return expected.length === supplied.length && timingSafeEqual(expected, supplied);
+}
+
 export async function launchGui(): Promise<void> {
   const token = randomBytes(32).toString('hex');
   let selectedRoot: string | null = null;
 
+  let expectedOrigin: string | null = null;
+
   const server = createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('X-Frame-Options', 'DENY');
+
+    if (!expectedOrigin) {
+      res.writeHead(503).end('Server is starting.');
+      return;
+    }
+
+    const expectedHost = new URL(expectedOrigin).host;
+    if (req.headers.host !== expectedHost) {
+      res.writeHead(403).end('Request denied.');
+      return;
+    }
 
     if (req.method === 'GET' && req.url === '/') {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+      });
       res.end(PAGE.replace('__TOKEN__', token));
       return;
     }
@@ -103,24 +171,67 @@ export async function launchGui(): Promise<void> {
       return;
     }
 
-    if (req.headers['x-dev-assistant-token'] !== token) {
+    if (req.method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' }).end('POST required.');
+      return;
+    }
+
+    if (!isTrustedGuiRequest(req.headers, expectedOrigin, token)) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Request denied.' }));
       return;
     }
 
+    if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] ?? '')) {
+      res.writeHead(415, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Content-Type must be application/json.' }));
+      return;
+    }
+
+    const contentLength = Number(req.headers['content-length'] ?? 0);
+    if (Number.isFinite(contentLength) && contentLength > 20_000) {
+      res.writeHead(413, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Request too large.' }));
+      return;
+    }
+
     try {
-      let raw = '';
+      const chunks: Buffer[] = [];
+      let totalBytes = 0;
       for await (const chunk of req) {
-        raw += chunk.toString();
-        if (raw.length > 20_000) throw new Error('Request too large.');
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        totalBytes += buffer.byteLength;
+        if (totalBytes > 20_000) {
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Request too large.' }));
+          return;
+        }
+        chunks.push(buffer);
       }
+
+      const raw = Buffer.concat(chunks).toString('utf8');
       const body = JSON.parse(raw || '{}') as {
         directory?: string;
         file?: string;
+        remoteUrl?: string;
+        branch?: string;
       };
 
-      if (req.method !== 'POST') throw new Error('POST required.');
+      if (req.url === '/api/clone') {
+        if (!body.remoteUrl) throw new Error('Enter a Git clone URL.');
+        const clonedRoot = await cloneRemoteRepository(body.remoteUrl, body.branch);
+        const context = getRepositoryContext(clonedRoot);
+        if (!context) throw new Error('The repository was cloned, but Git could not open the resulting project.');
+        selectedRoot = context.root;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          root: context.root,
+          branch: context.branch,
+          status: context.status,
+          files: context.files
+        }));
+        return;
+      }
 
       if (req.url === '/api/select') {
         if (!body.directory || !path.isAbsolute(body.directory)) {
@@ -171,7 +282,12 @@ export async function launchGui(): Promise<void> {
       return;
     }
     const url = `http://127.0.0.1:${address.port}/`;
+    expectedOrigin = new URL(url).origin;
     console.log(`Dev Assistant GUI running at ${url}`);
+    if (process.env.DEV_ASSISTANT_TAURI === '1') {
+      console.log('Dev Assistant desktop window is connecting to the local GUI.');
+      return;
+    }
     console.log('Keep this terminal open while using the GUI. Press Ctrl+C to stop.');
     const browser = spawn('xdg-open', [url], { detached: true, stdio: 'ignore' });
     browser.on('error', () => console.log(`Open this address in your browser: ${url}`));

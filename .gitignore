@@ -169,3 +169,8 @@ appsettings.Local.json
 appsettings.*.Local.json
 *.local
 *.local.*
+
+# Tauri desktop build output
+desktop/node_modules/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/schemas/
