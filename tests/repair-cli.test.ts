@@ -148,7 +148,7 @@ test('repair preview proposes a patch without modifying files', async () => {
 
   try {
     await withPatchServer(async (baseUrl) => {
-      const result = await runCli(root, [], {
+      const result = await runCli(root, ['--run-checks'], {
         AI_API_KEY: 'repair-test-key',
         AI_MODEL: 'test-model',
         AI_BASE_URL: baseUrl,
@@ -169,7 +169,7 @@ test('repair applies a valid patch and verifies the resulting checks', async () 
 
   try {
     await withPatchServer(async (baseUrl) => {
-      const result = await runCli(root, ['--apply'], {
+      const result = await runCli(root, ['--run-checks', '--apply'], {
         AI_API_KEY: 'repair-test-key',
         AI_MODEL: 'test-model',
         AI_BASE_URL: baseUrl,
@@ -196,7 +196,7 @@ test('repair refuses to apply changes on main', async () => {
   const root = createFixture('main');
 
   try {
-    const result = await runCli(root, ['--apply']);
+    const result = await runCli(root, ['--run-checks', '--apply']);
 
     assert.equal(result.code, 1);
     assert.match(result.stderr, /prohibited on main\/master/i);
@@ -212,7 +212,7 @@ test('repair refuses to apply changes when the working tree is dirty', async () 
   try {
     writeFileSync(path.join(root, 'target.js'), 'local work\n');
 
-    const result = await runCli(root, ['--apply']);
+    const result = await runCli(root, ['--run-checks', '--apply']);
 
     assert.equal(result.code, 1);
     assert.match(result.stderr, /clean working tree/i);
@@ -231,6 +231,48 @@ test('repair rejects an invalid max-attempts value before running checks', async
     assert.equal(result.code, 1);
     assert.match(result.stderr, /Maximum attempts must be between 1 and 3/);
     assert.equal(readFileSync(path.join(root, 'target.js'), 'utf8'), 'old\n');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('repair preview does not execute project scripts without explicit authorisation', async () => {
+  const root = createFixture();
+  try {
+    writeFileSync(
+      path.join(root, 'check.cjs'),
+      "require('node:fs').writeFileSync('script-ran.marker', 'yes'); process.exit(1);\\n",
+    );
+    const result = await runCli(root, []);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /pass --run-checks to explicitly authorise/i);
+    assert.equal(existsSync(path.join(root, 'script-ran.marker')), false);
+    assert.equal(readFileSync(path.join(root, 'target.js'), 'utf8'), 'old\\n');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('repair rolls back an applied patch when post-apply checks fail', async () => {
+  const root = createFixture();
+  try {
+    const packagePath = path.join(root, 'package.json');
+    const packageJson = JSON.parse(readFileSync(packagePath, 'utf8'));
+    packageJson.scripts.typecheck = 'node -e "process.exit(1)"';
+    writeFileSync(packagePath, JSON.stringify(packageJson, null, 2));
+    execFileSync('git', ['add', 'package.json'], { cwd: root });
+    execFileSync('git', ['commit', '-m', 'make validation fail'], { cwd: root });
+
+    await withPatchServer(async (baseUrl) => {
+      const result = await runCli(root, ['--run-checks', '--apply'], {
+        AI_API_KEY: 'repair-test-key',
+        AI_MODEL: 'test-model',
+        AI_BASE_URL: baseUrl,
+      });
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, /rolled back/i);
+      assert.equal(readFileSync(path.join(root, 'target.js'), 'utf8'), 'old\\n');
+    });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
