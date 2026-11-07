@@ -121,6 +121,7 @@ dev-assistant ai-debug "Describe the error" --file diagnostics.md
 dev-assistant ai-review
 dev-assistant ai-review --staged
 dev-assistant ai-review --staged --send
+dev-assistant ai-repair --run-checks
 ```
 
 The API URL must expose an OpenAI-compatible Chat Completions endpoint.
@@ -129,6 +130,16 @@ or selected diff to the configured provider. `ai-review` previews locally
 unless `--send` is specified. Only tracked diffs are included in AI reviews;
 untracked files are not automatically uploaded. Files passed to `ai-debug`
 are sent to the provider, so inspect them first.
+
+AI repair is deliberately opt-in because project validation scripts can execute
+arbitrary commands. The `--run-checks` flag explicitly authorises those scripts,
+including in preview mode. Applying a proposed patch additionally requires
+`--apply` and a clean, non-main repair branch. Repair patches are restricted to
+in-place edits of existing regular text files; mode changes, symlinks, renames,
+copies, binary patches, sensitive paths, generated output, and dependency
+lockfiles are rejected. If post-apply checks fail, the tool attempts to reverse
+the patch and reports an error if rollback cannot be completed. Review the
+working tree after every repair attempt.
 
 ## Verification
 
