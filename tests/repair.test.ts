@@ -66,3 +66,42 @@ test('repair rejects traversal and ambiguous diff headers', () => {
     /no Git file headers/i,
   );
 });
+
+test('repair rejects file mode, rename, copy and binary patch operations', () => {
+  for (const metadata of [
+    'new file mode 120000',
+    'old mode 100644\nnew mode 100755',
+    'rename from src/old.ts\nrename to src/new.ts',
+    'copy from src/old.ts\ncopy to src/new.ts',
+    'GIT binary patch',
+  ]) {
+    assert.throws(
+      () => validatePatchPaths(`${patchFor('src/example.ts')}\n${metadata}\n`),
+      /unsupported mode change|rename|copy|binary/i,
+    );
+  }
+});
+
+test('repair rejects mismatched text headers and file creation', () => {
+  assert.throws(
+    () => validatePatchPaths([
+      'diff --git a/src/a.ts b/src/a.ts',
+      '--- a/src/a.ts',
+      '+++ b/src/other.ts',
+      '@@ -1 +1 @@',
+      '-old',
+      '+new',
+    ].join('\n')),
+    /matching text-file headers/i,
+  );
+  assert.throws(
+    () => validatePatchPaths([
+      'diff --git a/src/new.ts b/src/new.ts',
+      '--- /dev/null',
+      '+++ b/src/new.ts',
+      '@@ -0,0 +1 @@',
+      '+new',
+    ].join('\n')),
+    /matching text-file headers/i,
+  );
+});
