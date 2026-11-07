@@ -8,7 +8,9 @@
     "dev": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc && chmod +x dist/index.js",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "desktop:dev": "npm --prefix desktop run dev",
+    "desktop:build": "npm --prefix desktop run build"
   },
   "keywords": [],
   "author": "",
