@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import {
   mkdtempSync,
+  existsSync,
   mkdirSync,
   readFileSync,
   rmSync,
