@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
+import type { IncomingHttpHeaders } from 'node:http';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import process from 'node:process';
@@ -84,16 +85,53 @@ $('changeProject').addEventListener('click',()=>{
 </script>
 </body></html>`;
 
+/** Require same-origin browser requests and the per-process bearer token. */
+export function isTrustedGuiRequest(
+  headers: IncomingHttpHeaders,
+  expectedOrigin: string,
+  token: string,
+): boolean {
+  const suppliedToken = headers['x-dev-assistant-token'];
+  if (
+    headers.host !== new URL(expectedOrigin).host ||
+    headers.origin !== expectedOrigin ||
+    typeof suppliedToken !== 'string'
+  ) {
+    return false;
+  }
+  const expected = Buffer.from(token);
+  const supplied = Buffer.from(suppliedToken);
+  return expected.length === supplied.length && timingSafeEqual(expected, supplied);
+}
+
 export async function launchGui(): Promise<void> {
   const token = randomBytes(32).toString('hex');
   let selectedRoot: string | null = null;
 
+  let expectedOrigin: string | null = null;
+
   const server = createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('X-Frame-Options', 'DENY');
+
+    if (!expectedOrigin) {
+      res.writeHead(503).end('Server is starting.');
+      return;
+    }
+
+    const expectedHost = new URL(expectedOrigin).host;
+    if (req.headers.host !== expectedHost) {
+      res.writeHead(403).end('Request denied.');
+      return;
+    }
 
     if (req.method === 'GET' && req.url === '/') {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+      });
       res.end(PAGE.replace('__TOKEN__', token));
       return;
     }
@@ -103,24 +141,49 @@ export async function launchGui(): Promise<void> {
       return;
     }
 
-    if (req.headers['x-dev-assistant-token'] !== token) {
+    if (req.method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' }).end('POST required.');
+      return;
+    }
+
+    if (!isTrustedGuiRequest(req.headers, expectedOrigin, token)) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Request denied.' }));
       return;
     }
 
+    if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] ?? '')) {
+      res.writeHead(415, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Content-Type must be application/json.' }));
+      return;
+    }
+
+    const contentLength = Number(req.headers['content-length'] ?? 0);
+    if (Number.isFinite(contentLength) && contentLength > 20_000) {
+      res.writeHead(413, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Request too large.' }));
+      return;
+    }
+
     try {
-      let raw = '';
+      const chunks: Buffer[] = [];
+      let totalBytes = 0;
       for await (const chunk of req) {
-        raw += chunk.toString();
-        if (raw.length > 20_000) throw new Error('Request too large.');
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        totalBytes += buffer.byteLength;
+        if (totalBytes > 20_000) {
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Request too large.' }));
+          return;
+        }
+        chunks.push(buffer);
       }
+
+      const raw = Buffer.concat(chunks).toString('utf8');
       const body = JSON.parse(raw || '{}') as {
         directory?: string;
         file?: string;
       };
-
-      if (req.method !== 'POST') throw new Error('POST required.');
 
       if (req.url === '/api/select') {
         if (!body.directory || !path.isAbsolute(body.directory)) {
@@ -171,6 +234,7 @@ export async function launchGui(): Promise<void> {
       return;
     }
     const url = `http://127.0.0.1:${address.port}/`;
+    expectedOrigin = new URL(url).origin;
     console.log(`Dev Assistant GUI running at ${url}`);
     console.log('Keep this terminal open while using the GUI. Press Ctrl+C to stop.');
     const browser = spawn('xdg-open', [url], { detached: true, stdio: 'ignore' });
