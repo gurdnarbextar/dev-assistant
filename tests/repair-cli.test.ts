@@ -248,7 +248,7 @@ test('repair preview does not execute project scripts without explicit authorisa
     assert.equal(result.code, 1);
     assert.match(result.stderr, /pass --run-checks to explicitly authorise/i);
     assert.equal(existsSync(path.join(root, 'script-ran.marker')), false);
-    assert.equal(readFileSync(path.join(root, 'target.js'), 'utf8'), 'old\\n');
+    assert.equal(readFileSync(path.join(root, 'target.js'), 'utf8'), 'old\n');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
