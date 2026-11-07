@@ -1,0 +1,13 @@
+{
+  "name": "dev-assistant-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm --prefix .. run build && tauri dev",
+    "build": "npm --prefix .. run build && tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}
