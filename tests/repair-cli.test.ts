@@ -272,7 +272,7 @@ test('repair rolls back an applied patch when post-apply checks fail', async () 
       });
       assert.equal(result.code, 1);
       assert.match(result.stderr, /rolled back/i);
-      assert.equal(readFileSync(path.join(root, 'target.js'), 'utf8'), 'old\\n');
+      assert.equal(readFileSync(path.join(root, 'target.js'), 'utf8'), 'old\n');
     });
   } finally {
     rmSync(root, { recursive: true, force: true });
