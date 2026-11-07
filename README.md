@@ -46,6 +46,12 @@ npm --prefix desktop run dev
 The initial desktop runtime requires Node.js 22 or later on `PATH`. The
 compiled CLI is bundled, but the Node.js runtime is not yet embedded.
 
+The desktop GUI supports both local Git repositories and remote HTTPS/SSH clone
+URLs. Remote repositories are cloned into `~/.dev-assistant/projects` and
+opened as local working copies. Private remotes use the system Git credential
+helper or SSH keys; credentials must not be embedded in clone URLs. Dev
+Assistant does not push changes automatically.
+
 ## Commands
 
 ### Git inspection
