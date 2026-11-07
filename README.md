@@ -29,6 +29,23 @@ npm run dev -- help
 
 After source changes, rebuild with `npm run build`.
 
+## Desktop application (Tauri)
+
+The desktop application wraps the existing Node.js CLI and local GUI in a
+native Tauri window. The CLI remains the application core.
+
+On Fedora, install the Tauri system dependencies and Rust toolchain as
+documented in [desktop/README.md](desktop/README.md), then install the desktop
+dependencies and launch the window:
+
+```bash
+npm install --prefix desktop
+npm --prefix desktop run dev
+```
+
+The initial desktop runtime requires Node.js 22 or later on `PATH`. The
+compiled CLI is bundled, but the Node.js runtime is not yet embedded.
+
 ## Commands
 
 ### Git inspection
