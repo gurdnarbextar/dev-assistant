@@ -266,6 +266,13 @@ export function validatePatchPaths(patch: string): void {
 
     const oldPath = match[1];
     const newPath = match[2];
+    if (oldPath !== newPath) {
+      throw new Error('Patch renames or copies are not supported.');
+    }
+    const indexMode = blockLines.find((line) => line.startsWith('index '));
+    if (indexMode && !/^index [0-9a-f]+\.\.[0-9a-f]+ 100644$/i.test(indexMode)) {
+      throw new Error('Patch contains a non-regular-file mode change.');
+    }
     const oldHeader = blockLines.find((line) => line.startsWith('--- '));
     const newHeader = blockLines.find((line) => line.startsWith('+++ '));
 
