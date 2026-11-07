@@ -13,7 +13,9 @@ export function validateRemoteGitUrl(value: string): string {
 
   if (/^[^/@:]+@[^/:]+:.+$/.test(remote)) {
     const match = remote.match(/^([^/@:]+)@([^/:]+):(.+)$/);
-    if (!match || !match[2].includes('.') || match[3].startsWith('-')) {
+    const host = match?.[2];
+    const repositoryPath = match?.[3];
+    if (!host || !repositoryPath || !host.includes('.') || repositoryPath.startsWith('-')) {
       throw new Error('Enter a valid SSH clone URL.');
     }
     return remote;
