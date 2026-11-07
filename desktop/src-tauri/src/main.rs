@@ -108,7 +108,7 @@ fn main() {
             let (child, url) = start_local_service(app.handle())?;
             app.manage(Mutex::new(child));
 
-            let parsed_url = url.parse()
+            let parsed_url: url::Url = url.parse()
                 .map_err(|error| io_error(format!("Invalid local service URL: {error}")))?;
 
             let expected_port = parsed_url.port();
