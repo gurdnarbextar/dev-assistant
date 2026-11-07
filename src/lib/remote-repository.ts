@@ -29,7 +29,8 @@ export function validateRemoteGitUrl(value: string): string {
   if (
     !['https:', 'ssh:'].includes(parsed.protocol) ||
     !parsed.hostname ||
-    parsed.username.length > 0 && parsed.username !== 'git' ||
+    (parsed.protocol === 'https:' && parsed.username.length > 0) ||
+    (parsed.protocol === 'ssh:' && parsed.username.length > 0 && parsed.username !== 'git') ||
     parsed.password ||
     parsed.search ||
     parsed.hash ||
