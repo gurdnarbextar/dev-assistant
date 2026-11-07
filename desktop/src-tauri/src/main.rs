@@ -1,6 +1,5 @@
 use std::{
     error::Error,
-    fs::File,
     io::{BufRead, BufReader, Error as IoError, ErrorKind},
     path::PathBuf,
     process::{Child, Command, Stdio},
